@@ -303,14 +303,21 @@ async function execute(
     // host records a finished turn with no output and fails the run.
     if (event.type === 'assistant/message') {
       const complete = assistantMessageText(event.data.message);
-      if (complete !== '' && complete !== streamedSinceMessage) {
+      // Deltas and the completed message describe the same text, so the stream
+      // only ever delivers a prefix of it — a block settled through the
+      // BlockAssembler `block-end` path never reaches the stream at all.
+      // Forward the remainder, never the prefix the host already received.
+      const unstreamed = complete.startsWith(streamedSinceMessage)
+        ? complete.slice(streamedSinceMessage.length)
+        : '';
+      if (unstreamed !== '') {
         writeFrame(output, {
           v: 1,
           type: 'text',
           request_id: request.request_id,
-          content: complete,
+          content: unstreamed,
         });
-        assistantOutput += complete;
+        assistantOutput += unstreamed;
       }
       streamedSinceMessage = '';
     }

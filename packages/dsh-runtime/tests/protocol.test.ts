@@ -410,4 +410,79 @@ describe('@open-design/dsh-runtime protocol', () => {
     assert.equal(frames.at(-1)?.status, 'completed');
     assert.equal(frames.at(-1)?.output, 'finished the work');
   });
+
+  test('forwards only the completed-message text the stream did not already deliver', async () => {
+    let sessionId = '';
+    let emit: ((session: { id: string }, event: unknown) => void) | undefined;
+    const handle = {
+      agent: {
+        session: { seq: 0 },
+        whenIdle: async () => {},
+        followup: async () => {
+          emit?.({ id: sessionId }, {
+            type: 'assistant/chunk',
+            seq: 2,
+            data: { chunk: { type: 'text-delta', index: 0, text: 'hello' } },
+          });
+          emit?.({ id: sessionId }, {
+            type: 'assistant/message',
+            seq: 3,
+            data: {
+              turn: 1,
+              step: 1,
+              message: {
+                role: 'assistant',
+                content: [
+                  { type: 'text', text: 'hello' },
+                  { type: 'text', text: ' world' },
+                ],
+              },
+              usage: { inputTokens: 12, outputTokens: 4 },
+            },
+          });
+          emit?.({ id: sessionId }, {
+            type: 'turn/end',
+            seq: 4,
+            data: { turn: 1, reason: { kind: 'completed' } },
+          });
+        },
+      },
+      dispose: async () => {},
+    };
+    const ctx = {
+      agentDefaultModel: {
+        currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      },
+      agents: {
+        create: async ({ sessionId: created }: { sessionId: string }) => {
+          sessionId = String(created);
+          return handle;
+        },
+      },
+      on: (_name: string, handler: (session: { id: string }, event: unknown) => void) => {
+        emit = handler;
+        return () => {};
+      },
+      sessions: { flush: async () => {} },
+    };
+    const chunks: string[] = [];
+    await internals.execute(ctx as never, {
+      v: 1,
+      type: 'execute',
+      request_id: 'run-partial-stream',
+      cwd: '/project',
+      prompt: 'finish the work',
+      mcp_servers: [],
+    }, { write: (chunk: string) => chunks.push(chunk) }, () => {}, new AbortController().signal);
+
+    const frames = chunks.map((chunk) =>
+      JSON.parse(chunk) as { type: string; content?: string; output?: string; status?: string },
+    );
+    assert.deepEqual(
+      frames.filter((frame) => frame.type === 'text').map((frame) => frame.content),
+      ['hello', ' world'],
+    );
+    assert.equal(frames.at(-1)?.status, 'completed');
+    assert.equal(frames.at(-1)?.output, 'hello world');
+  });
 });
