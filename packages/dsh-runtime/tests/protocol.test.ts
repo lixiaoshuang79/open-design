@@ -422,7 +422,7 @@ describe('@open-design/dsh-runtime protocol', () => {
           emit?.({ id: sessionId }, {
             type: 'assistant/chunk',
             seq: 2,
-            data: { chunk: { type: 'text-delta', index: 0, text: 'hello' } },
+            data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hello' } },
           });
           emit?.({ id: sessionId }, {
             type: 'assistant/message',
